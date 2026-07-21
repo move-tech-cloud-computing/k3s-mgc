@@ -312,10 +312,12 @@ function Invoke-Create {
     ($k3sYaml -replace '127\.0\.0\.1', $vmIp) | Set-Content -Path $kubeconfigPath -Encoding UTF8
     Write-Ok "kubectl configurado ($kubeconfigPath)"
 
-    Write-Host ""
-    $regAns = Read-Host "  Deseja configurar acesso a um Container Registry? [s/N]"
-    if ($regAns.ToLower() -eq 's') {
-        Invoke-SetupRegistry
+    if ([Environment]::UserInteractive) {
+        Write-Host ""
+        $regAns = Read-Host "  Deseja configurar acesso a um Container Registry? [s/N]"
+        if ($regAns.ToLower() -eq 's') {
+            Invoke-SetupRegistry
+        }
     }
 
     Write-Host ""
@@ -532,7 +534,7 @@ function Invoke-Delete {
     $vmIp = $cluster.ip
 
     Write-Host "`nDeletando cluster '$name' ($vmIp)" -ForegroundColor Yellow
-    $confirm = Read-Host "  Confirmar? [s/N]"
+    $confirm = if ([Environment]::UserInteractive) { Read-Host "  Confirmar? [s/N]" } else { 'n' }
     if ($confirm.ToLower() -ne 's') { Write-Host "Cancelado."; exit 0 }
 
     Write-Info "Deletando VM"

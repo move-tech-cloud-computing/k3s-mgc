@@ -374,10 +374,12 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
   step_data "Contexto" "default"
 
   # ── Container Registry (interativo) ──────────────────────────────────────
-  echo ""
-  read -rp "  Deseja configurar acesso a um Container Registry? [s/N] " _reg_ans
-  if [[ "$(echo "$_reg_ans" | tr '[:upper:]' '[:lower:]')" == "s" ]]; then
-    setup_registry
+  if [[ -t 0 ]]; then
+    echo ""
+    read -rp "  Deseja configurar acesso a um Container Registry? [s/N] " _reg_ans
+    if [[ "$(echo "$_reg_ans" | tr '[:upper:]' '[:lower:]')" == "s" ]]; then
+      setup_registry
+    fi
   fi
 
   echo ""
@@ -494,7 +496,8 @@ cmd_delete() {
 
   hdr "Deletando cluster '${name}'"
   echo ""
-  read -rp "  Confirmar exclusão de '${name}' (${vm_ip})? [s/N] " confirm
+  local confirm="n"
+  [[ -t 0 ]] && read -rp "  Confirmar exclusão de '${name}' (${vm_ip})? [s/N] " confirm
   [[ "$(echo "$confirm" | tr '[:upper:]' '[:lower:]')" == "s" ]] || { echo "Cancelado."; exit 0; }
 
   step "Máquina virtual" "Deletando VM"
