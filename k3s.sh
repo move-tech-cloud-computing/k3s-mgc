@@ -34,7 +34,8 @@ check_update() {
   fi
 
   echo -e "\n${Y}⚠${N} Uma versão mais recente do script está disponível."
-  read -rp "  Atualizar agora? [s/N] " _upd
+  local _upd="n"
+  [[ -t 0 ]] && read -rp "  Atualizar agora? [s/N] " _upd
   if [[ "$(echo "$_upd" | tr '[:upper:]' '[:lower:]')" == "s" ]]; then
     chmod +x "$tmp"
     mv "$tmp" "$0"
@@ -46,8 +47,6 @@ check_update() {
 }
 
 # ─── Constantes ───────────────────────────────────────────────────────────────
-K3S_DIR="${HOME}/.k3s-mgc"
-STATE="${K3S_DIR}/clusters.json"
 SG_NAME="sg-k3s-cluster"
 MACHINE_TYPE="BV2-2-40"
 IMAGE_NAME="cloud-ubuntu-24.04 LTS"
@@ -71,68 +70,61 @@ step_data() { printf "    %-10s %s\n" "$1" "$2"; }
 # ─── mgc wrapper que strip ANSI e força JSON ──────────────────────────────────
 mgcj() { "$@" --output json 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'; }
 
-# ─── Estado em JSON ───────────────────────────────────────────────────────────
-init_state() {
-  mkdir -p "$K3S_DIR"
-  [[ -f "$STATE" ]] || echo '{}' > "$STATE"
-}
+# ─── Lookups de cluster via API ───────────────────────────────────────────────
 
-state_get() {
-  python3 -c "
+# Retorna JSON {vm_id, name, ip} buscando pelo ID da VM, ou falha com exit 1
+cluster_by_id() {
+  local vm_id="$1"
+  local vm_json
+  vm_json=$(mgcj mgc virtual-machine instances get "$vm_id" 2>/dev/null) || return 1
+  echo "$vm_json" | python3 -c "
 import json, sys
-data = json.load(open('${STATE}'))
-c = data.get(sys.argv[1], {})
-print(c.get(sys.argv[2], '') if len(sys.argv) > 2 else json.dumps(c, indent=2))
-" "$@" 2>/dev/null || true
+d = json.load(sys.stdin)
+name = d.get('name', '')
+if not name.startswith('vm-k3s-cluster-'):
+    sys.exit(1)
+ifaces = d.get('network', {}).get('interfaces', [])
+ip = ifaces[0].get('associated_public_ipv4', '') if ifaces else ''
+print(json.dumps({'vm_id': d['id'], 'name': name[len('vm-k3s-cluster-'):], 'ip': ip}))
+" 2>/dev/null
 }
 
-state_cluster() {
-  python3 -c "
+# Lista todos os clusters como linhas "vm_id|name|ip"
+list_clusters() {
+  mgcj mgc virtual-machine instances list | python3 -c "
 import json, sys
-data = json.load(open('${STATE}'))
-c = data.get(sys.argv[1])
-if not c: sys.exit(1)
-print(json.dumps(c))
-" "$1" 2>/dev/null
+vms = json.load(sys.stdin).get('instances', [])
+prefix = 'vm-k3s-cluster-'
+for v in vms:
+    n = v.get('name', '')
+    if not n.startswith(prefix):
+        continue
+    ifaces = v.get('network', {}).get('interfaces', [])
+    ip = ifaces[0].get('associated_public_ipv4', '—') if ifaces else '—'
+    print(v['id'] + '|' + n[len(prefix):] + '|' + ip)
+" 2>/dev/null || true
 }
 
-state_save_all() {  # state_save_all NAME vm_id sg_id ip ssh_key
-  python3 -c "
-import json
-data = json.load(open('${STATE}'))
-data['$1'] = {'vm_id':'$2','sg_id':'$3','ip':'$4','ssh_key':'$5'}
-json.dump(data, open('${STATE}', 'w'), indent=2)
-"
-}
-
-state_delete() {
-  python3 -c "
-import json
-data = json.load(open('${STATE}'))
-data.pop('$1', None)
-json.dump(data, open('${STATE}', 'w'), indent=2)
-"
-}
-
-state_list() {
-  python3 -c "import json; d=json.load(open('${STATE}')); print('\n'.join(d.keys()))" 2>/dev/null || true
-}
-
-state_count() {
-  python3 -c "import json; print(len(json.load(open('${STATE}'))))" 2>/dev/null || echo 0
-}
-
-state_cluster_by_id() {
-  python3 -c "
+# Conta clusters restantes, excluindo o VM ID informado
+count_clusters_except() {
+  local exclude_id="$1"
+  mgcj mgc virtual-machine instances list | python3 -c "
 import json, sys
-data = json.load(open('${STATE}'))
-for name, c in data.items():
-    if c.get('vm_id') == sys.argv[1]:
-        c['name'] = name
-        print(json.dumps(c))
-        sys.exit(0)
-sys.exit(1)
-" "$1" 2>/dev/null
+vms = json.load(sys.stdin).get('instances', [])
+print(sum(1 for v in vms
+          if v.get('name', '').startswith('vm-k3s-cluster-')
+          and v.get('id', '') != '$exclude_id'))
+" 2>/dev/null || echo "0"
+}
+
+# Retorna o ID do SG pelo nome, ou string vazia
+get_sg_id() {
+  mgcj mgc network security-groups list | python3 -c "
+import json, sys
+sgs = json.load(sys.stdin).get('security_groups', [])
+match = [s for s in sgs if s.get('name') == '${SG_NAME}']
+print(match[0]['id'] if match else '')
+" 2>/dev/null || echo ""
 }
 
 # ─── Pré-requisitos ───────────────────────────────────────────────────────────
@@ -201,11 +193,7 @@ _sg_id=""  # preenchido por ensure_sg
 ensure_sg() {
   step "Security Group" "Verificando grupo de segurança"
 
-  _sg_id=$(mgcj mgc network security-groups list | python3 -c "
-import json,sys
-sgs=[s for s in json.load(sys.stdin).get('security_groups',[]) if s.get('name')=='${SG_NAME}']
-print(sgs[0]['id'] if sgs else '')
-" 2>/dev/null || echo "")
+  _sg_id=$(get_sg_id)
 
   if [[ -n "$_sg_id" ]]; then
     step_ok "Security Group" "Grupo já existente"
@@ -260,33 +248,22 @@ cmd_create() {
 
   [[ -n "$name" ]] || die "Informe o nome do cluster: --name NOME"
 
-  init_state
-
   local vm_name="vm-k3s-cluster-${name}"
 
   hdr "Criando cluster '${name}'"
 
   check_prereqs
-
   ensure_ssh_key
-
   ensure_sg
   local sg_id="$_sg_id"
 
-  # ── Recupera estado salvo (retomada após falha) ───────────────────────────
-  local saved_vm_id saved_vm_ip
-  saved_vm_id=$(state_get "$name" vm_id 2>/dev/null || true)
-  saved_vm_ip=$(state_get  "$name" ip    2>/dev/null || true)
-
   # ── VM ───────────────────────────────────────────────────────────────────
-  local vm_id="${saved_vm_id:-}"
-  if [[ -z "$vm_id" ]]; then
-    vm_id=$(mgcj mgc virtual-machine instances list | python3 -c "
+  local vm_id
+  vm_id=$(mgcj mgc virtual-machine instances list | python3 -c "
 import json,sys
 vms=[v for v in json.load(sys.stdin).get('instances',[]) if v.get('name')=='${vm_name}']
 print(vms[0]['id'] if vms else '')
 " 2>/dev/null || echo "")
-  fi
 
   if [[ -n "$vm_id" ]]; then
     step "Máquina virtual" "Verificando VM"
@@ -335,29 +312,24 @@ print(len(orphans))
     step_data "ID"     "${vm_id}"
     step_data "Tipo"   "${MACHINE_TYPE}"
     step_data "Imagem" "Ubuntu 24.04 LTS"
-
-    state_save_all "$name" "$vm_id" "$sg_id" "" "$SSH_KEY_NAME"
   fi
 
   # ── IP público ───────────────────────────────────────────────────────────
-  local vm_ip="${saved_vm_ip:-}"
-  if [[ -z "$vm_ip" ]]; then
-    step "IP público" "Aguardando atribuição"
-    for i in $(seq 1 30); do
-      vm_ip=$(mgcj mgc virtual-machine instances get "$vm_id" | python3 -c "
+  local vm_ip=""
+  step "IP público" "Aguardando atribuição"
+  for i in $(seq 1 30); do
+    vm_ip=$(mgcj mgc virtual-machine instances get "$vm_id" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 ifaces=d.get('network',{}).get('interfaces',[])
 print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
 " 2>/dev/null || echo "")
-      [[ -n "$vm_ip" ]] && break
-      sleep 5
-    done
-    [[ -n "$vm_ip" ]] || die "IP público não atribuído. Execute: ./k3s.sh network ip-cleanup"
-    state_save_all "$name" "$vm_id" "$sg_id" "$vm_ip" "$SSH_KEY_NAME"
-    step_ok "IP público" "IP atribuído"
-    step_data "Endereço" "${vm_ip}"
-  fi
+    [[ -n "$vm_ip" ]] && break
+    sleep 5
+  done
+  [[ -n "$vm_ip" ]] || die "IP público não atribuído. Execute: ./k3s.sh network ip-cleanup"
+  step_ok "IP público" "IP atribuído"
+  step_data "Endereço" "${vm_ip}"
 
   # ── SSH ──────────────────────────────────────────────────────────────────
   wait_ssh "$vm_ip"
@@ -390,8 +362,6 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
   [[ "$status" == "Ready" ]] || die "K3s não ficou Ready após 120s."
   step_ok "Cluster" "Nó pronto"
 
-  state_save_all "$name" "$vm_id" "$sg_id" "$vm_ip" "$SSH_KEY_NAME"
-
   # ── Kubeconfig ───────────────────────────────────────────────────────────
   step "kubectl" "Configurando acesso ao cluster"
   mkdir -p "${HOME}/.kube"
@@ -414,7 +384,8 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo -e "${G}${B}✓ Cluster '${name}' pronto!${N}"
   echo ""
-  echo -e "  Verificar:  ${C}kubectl get nodes${N}"
+  echo -e "  ID do cluster:  ${C}${vm_id}${N}"
+  echo -e "  Verificar:      ${C}kubectl get nodes${N}"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
@@ -432,10 +403,11 @@ cmd_kubeconfig() {
   done
 
   [[ -n "$cluster_id" ]] || die "Informe o ID do cluster: --cluster-id ID"
-  init_state
 
-  local cluster; cluster=$(state_cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado. Liste com: ./k3s.sh kubernetes cluster list"
-  local vm_ip; vm_ip=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['ip'])")
+  local cluster
+  cluster=$(cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado. Liste com: ./k3s.sh kubernetes cluster list"
+  local vm_ip
+  vm_ip=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['ip'])")
 
   if [[ "$raw" -eq 1 ]]; then
     vm_ssh "$vm_ip" "sudo cat /etc/rancher/k3s/k3s.yaml" | sed "s/127.0.0.1/${vm_ip}/g"
@@ -446,8 +418,8 @@ cmd_kubeconfig() {
 
 # ─── COMANDO: list ────────────────────────────────────────────────────────────
 cmd_list() {
-  init_state
-  local clusters; clusters=$(state_list)
+  local clusters
+  clusters=$(list_clusters)
 
   if [[ -z "$clusters" ]]; then
     echo "Nenhum cluster encontrado."
@@ -457,11 +429,8 @@ cmd_list() {
   printf "%-20s %-40s %-15s\n" "NOME" "ID (--cluster-id)" "IP"
   printf "%-20s %-40s %-15s\n" "────────────────────" "────────────────────────────────────────" "───────────────"
 
-  while IFS= read -r name; do
+  while IFS='|' read -r vm_id name ip; do
     [[ -z "$name" ]] && continue
-    local c; c=$(state_cluster "$name" 2>/dev/null || echo "{}")
-    local ip; ip=$(echo "$c" | python3 -c "import json,sys; print(json.load(sys.stdin).get('ip','—'))" 2>/dev/null || echo "—")
-    local vm_id; vm_id=$(echo "$c" | python3 -c "import json,sys; print(json.load(sys.stdin).get('vm_id','—'))" 2>/dev/null || echo "—")
     printf "%-20s %-40s %-15s\n" "$name" "$vm_id" "$ip"
   done <<< "$clusters"
 }
@@ -479,14 +448,13 @@ cmd_get() {
   done
 
   [[ -n "$cluster_id" ]] || die "Informe o ID do cluster: --cluster-id ID"
-  init_state
 
-  local cluster; cluster=$(state_cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado."
+  local cluster
+  cluster=$(cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado."
 
-  local name; name=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")
-  local vm_ip; vm_ip=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['ip'])")
-  local vm_id; vm_id=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['vm_id'])")
-  local ssh_key; ssh_key=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['ssh_key'])")
+  local name vm_ip
+  name=$(echo "$cluster"  | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")
+  vm_ip=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['ip'])")
 
   local k3s_version k3s_status
   k3s_version=$(vm_ssh "$vm_ip" "k3s --version 2>/dev/null | head -1 | awk '{print \$3}'" 2>/dev/null || echo "—")
@@ -496,11 +464,10 @@ cmd_get() {
   echo -e "${B}Cluster: ${name}${N}"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   printf "  %-18s %s\n" "Nome:"       "${name}"
-  printf "  %-18s %s\n" "ID:"         "${vm_id}"
+  printf "  %-18s %s\n" "ID:"         "${cluster_id}"
   printf "  %-18s %s\n" "Status:"     "${k3s_status}"
   printf "  %-18s %s\n" "IP:"         "${vm_ip}"
   printf "  %-18s %s\n" "Versão K3s:" "${k3s_version}"
-  printf "  %-18s %s\n" "Chave SSH:"  "${ssh_key}"
   echo ""
 }
 
@@ -517,14 +484,13 @@ cmd_delete() {
   done
 
   [[ -n "$cluster_id" ]] || die "Informe o ID do cluster: --cluster-id ID"
-  init_state
 
-  local cluster; cluster=$(state_cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado."
+  local cluster
+  cluster=$(cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado."
 
-  local name; name=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")
-  local vm_id; vm_id=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['vm_id'])")
-  local sg_id; sg_id=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['sg_id'])")
-  local vm_ip; vm_ip=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['ip'])")
+  local name vm_ip
+  name=$(echo "$cluster"  | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")
+  vm_ip=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['ip'])")
 
   hdr "Deletando cluster '${name}'"
   echo ""
@@ -532,22 +498,26 @@ cmd_delete() {
   [[ "$(echo "$confirm" | tr '[:upper:]' '[:lower:]')" == "s" ]] || { echo "Cancelado."; exit 0; }
 
   step "Máquina virtual" "Deletando VM"
-  if mgcj mgc virtual-machine instances delete "$vm_id" --no-confirm --delete-public-ip >/dev/null; then
+  if mgcj mgc virtual-machine instances delete "$cluster_id" --no-confirm --delete-public-ip >/dev/null; then
     step_ok "Máquina virtual" "VM deletada"
     step_data "IP liberado" "${vm_ip}"
   else
     warn "Falha ao deletar VM"
   fi
 
-  state_delete "$name"
-  local remaining; remaining=$(state_count)
+  local remaining
+  remaining=$(count_clusters_except "$cluster_id")
 
   if [[ "$remaining" -eq 0 ]]; then
-    step "Security Group" "Deletando grupo de segurança"
-    if mgcj mgc network security-groups delete --security-group-id "$sg_id" --no-confirm >/dev/null 2>&1; then
-      step_ok "Security Group" "Grupo deletado"
-    else
-      warn "Falha ao deletar Security Group (pode já ter sido removido)"
+    local sg_id
+    sg_id=$(get_sg_id)
+    if [[ -n "$sg_id" ]]; then
+      step "Security Group" "Deletando grupo de segurança"
+      if mgcj mgc network security-groups delete --security-group-id "$sg_id" --no-confirm >/dev/null 2>&1; then
+        step_ok "Security Group" "Grupo deletado"
+      else
+        warn "Falha ao deletar Security Group (pode já ter sido removido)"
+      fi
     fi
   else
     warn "Security Group mantido — ainda há ${remaining} cluster(s) usando."
@@ -568,11 +538,11 @@ cmd_stop() {
     esac
   done
   [[ -n "$cluster_id" ]] || die "Informe o ID do cluster: --cluster-id ID"
-  init_state
 
-  local cluster; cluster=$(state_cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado. Liste com: ./k3s.sh kubernetes cluster list"
-  local name; name=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")
-  local vm_ip; vm_ip=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['ip'])")
+  local cluster
+  cluster=$(cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado. Liste com: ./k3s.sh kubernetes cluster list"
+  local name
+  name=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")
 
   hdr "Parando cluster '${name}'"
 
@@ -595,12 +565,12 @@ cmd_start() {
     esac
   done
   [[ -n "$cluster_id" ]] || die "Informe o ID do cluster: --cluster-id ID"
-  init_state
 
-  local cluster; cluster=$(state_cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado. Liste com: ./k3s.sh kubernetes cluster list"
-  local name; name=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")
-  local vm_ip_saved; vm_ip_saved=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['ip'])")
-  local sg_id; sg_id=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['sg_id'])")
+  local cluster
+  cluster=$(cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado. Liste com: ./k3s.sh kubernetes cluster list"
+  local name vm_ip_anterior
+  name=$(echo "$cluster"         | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")
+  vm_ip_anterior=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['ip'])")
 
   hdr "Iniciando cluster '${name}'"
 
@@ -622,14 +592,23 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
   done
   [[ -n "$vm_ip" ]] || die "IP público não disponível após iniciar VM."
 
-  if [[ "$vm_ip" != "$vm_ip_saved" ]]; then
-    state_save_all "$name" "$cluster_id" "$sg_id" "$vm_ip" "$SSH_KEY_NAME"
-    step_ok "IP público" "IP atribuído (alterado: ${vm_ip_saved} → ${vm_ip})"
+  if [[ "$vm_ip" != "$vm_ip_anterior" ]]; then
+    step_ok "IP público" "IP atribuído (alterado: ${vm_ip_anterior} → ${vm_ip})"
   else
     step_ok "IP público" "IP atribuído (${vm_ip})"
   fi
 
   wait_ssh "$vm_ip"
+
+  # Atualiza node-external-ip no K3s se o IP mudou
+  if [[ "$vm_ip" != "$vm_ip_anterior" ]]; then
+    step "K3s" "Atualizando IP externo"
+    vm_ssh "$vm_ip" \
+      "printf 'node-external-ip: ${vm_ip}\ndisable:\n  - traefik\n' | sudo tee /etc/rancher/k3s/config.yaml >/dev/null && sudo systemctl restart k3s" \
+      2>/dev/null || warn "Não foi possível atualizar node-external-ip (continue manualmente se necessário)"
+    sleep 5
+    step_ok "K3s" "IP externo atualizado"
+  fi
 
   step "kubectl" "Atualizando acesso ao cluster"
   mkdir -p "${HOME}/.kube"
@@ -743,8 +722,7 @@ cmd_configure_registry() {
     esac
   done
   [[ -n "$cluster_id" ]] || die "Informe o ID do cluster: --cluster-id ID"
-  init_state
-  state_cluster_by_id "$cluster_id" >/dev/null || die "Cluster '${cluster_id}' não encontrado."
+  cluster_by_id "$cluster_id" >/dev/null || die "Cluster '${cluster_id}' não encontrado."
   setup_registry
 }
 
