@@ -372,7 +372,7 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
   else
     step "K3s" "Instalando K3s"
     vm_ssh "$vm_ip" \
-      "curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='--tls-san ${vm_ip}' sudo -E sh - >/dev/null 2>&1"
+      "curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='--tls-san ${vm_ip} --disable=traefik --node-external-ip=${vm_ip}' sudo -E sh - >/dev/null 2>&1"
     local k3s_version
     k3s_version=$(vm_ssh "$vm_ip" "k3s --version 2>/dev/null | head -1 | awk '{print \$3}'" 2>/dev/null || echo "desconhecida")
     step_ok "K3s" "K3s instalado com sucesso"

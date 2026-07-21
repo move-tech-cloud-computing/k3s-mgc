@@ -315,7 +315,7 @@ function Invoke-Create {
         Write-Ok "K3s já instalado"
     } else {
         Write-Info "Instalando K3s"
-        Invoke-Ssh -Ip $vmIp -Command "curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='--tls-san $vmIp' sudo -E sh - 2>&1 | tail -3"
+        Invoke-Ssh -Ip $vmIp -Command "curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC='--tls-san $vmIp --disable=traefik --node-external-ip=$vmIp' sudo -E sh - 2>&1 | tail -3"
         Write-Ok "K3s instalado"
     }
 
