@@ -201,7 +201,7 @@ function Ensure-SecurityGroup {
     if (-not $sg.id) { Stop-Script "Falha ao criar Security Group" }
     $sgId = $sg.id
 
-    foreach ($port in @(22, 8000, 6443)) {
+    foreach ($port in @(22, 80, 8000, 6443)) {
         Invoke-Mgc @('network', 'security-groups', 'rules', 'create',
             "--security-group-id=$sgId", '--direction=ingress', '--ethertype=IPv4',
             '--protocol=tcp', "--port-range-min=$port", "--port-range-max=$port",
@@ -218,7 +218,7 @@ function Ensure-SecurityGroup {
         "--security-group-id=$sgId", '--direction=egress', '--ethertype=IPv6',
         '--protocol=tcp', '--remote-ip-prefix=::/0', '--wait') | Out-Null
 
-    Write-Ok "Security Group criado (portas: 22, 8000, 6443)"
+    Write-Ok "Security Group criado (portas: 22, 80, 8000, 6443)"
     return $sgId
 }
 

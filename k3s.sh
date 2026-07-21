@@ -222,7 +222,7 @@ print(sgs[0]['id'] if sgs else '')
   _sg_id=$(echo "$sg_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" || echo "")
   [[ -n "$_sg_id" ]] || die "Não foi possível obter o ID do Security Group"
 
-  for port in 22 8000 6443; do
+  for port in 22 80 8000 6443; do
     mgcj mgc network security-groups rules create \
       --security-group-id="$_sg_id" --direction="ingress" --ethertype="IPv4" \
       --protocol="tcp" --port-range-min=$port --port-range-max=$port \
@@ -243,7 +243,7 @@ print(sgs[0]['id'] if sgs else '')
   step_ok "Security Group" "Grupo criado com sucesso"
   step_data "Nome"   "${SG_NAME}"
   step_data "ID"     "${_sg_id}"
-  step_data "Portas" "22 (SSH)  8000 (API)  6443 (Kubernetes)"
+  step_data "Portas" "22 (SSH)  80 (HTTP)  8000 (API)  6443 (Kubernetes)"
 }
 
 # ─── COMANDO: create ──────────────────────────────────────────────────────────
