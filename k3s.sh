@@ -6,6 +6,7 @@
 #   k3s.sh kubernetes cluster create              --name NOME
 #   k3s.sh kubernetes cluster start               --cluster-id ID
 #   k3s.sh kubernetes cluster stop                --cluster-id ID
+#   k3s.sh kubernetes cluster kubeconfig          --cluster-id ID           # setta em ~/.kube/config
 #   k3s.sh kubernetes cluster kubeconfig          --cluster-id ID --raw > arquivo.yaml
 #   k3s.sh kubernetes cluster list
 #   k3s.sh kubernetes cluster get                 --cluster-id ID
@@ -414,7 +415,18 @@ cmd_kubeconfig() {
   if [[ "$raw" -eq 1 ]]; then
     vm_ssh "$vm_ip" "sudo cat /etc/rancher/k3s/k3s.yaml" | sed "s/127.0.0.1/${vm_ip}/g"
   else
-    die "Use --raw para obter o kubeconfig:\n  ./k3s.sh kubernetes cluster kubeconfig --cluster-id ${cluster_id} --raw > meu-cluster.yaml"
+    hdr "Configurando kubectl para o cluster"
+    step "kubectl" "Baixando kubeconfig da VM"
+    mkdir -p "${HOME}/.kube"
+    vm_ssh "$vm_ip" "sudo cat /etc/rancher/k3s/k3s.yaml" \
+      | sed "s/127.0.0.1/${vm_ip}/g" \
+      > "${HOME}/.kube/config"
+    chmod 600 "${HOME}/.kube/config"
+    step_ok "kubectl" "Configurado com sucesso"
+    step_data "Arquivo"  "${HOME}/.kube/config"
+    step_data "Contexto" "default"
+    echo ""
+    ok "Pronto! Teste com: kubectl get nodes"
   fi
 }
 
@@ -784,6 +796,7 @@ cmd_help() {
   echo -e "  ${C}./k3s.sh kubernetes cluster create              --name NOME${N}"
   echo -e "  ${C}./k3s.sh kubernetes cluster start               --cluster-id ID${N}"
   echo -e "  ${C}./k3s.sh kubernetes cluster stop                --cluster-id ID${N}"
+  echo -e "  ${C}./k3s.sh kubernetes cluster kubeconfig          --cluster-id ID${N}              # setta em ~/.kube/config"
   echo -e "  ${C}./k3s.sh kubernetes cluster kubeconfig          --cluster-id ID --raw > arquivo.yaml${N}"
   echo -e "  ${C}./k3s.sh kubernetes cluster list${N}"
   echo -e "  ${C}./k3s.sh kubernetes cluster get                 --cluster-id ID${N}"

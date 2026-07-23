@@ -6,6 +6,7 @@
 #   .\k3s.ps1 kubernetes cluster create              --name NOME
 #   .\k3s.ps1 kubernetes cluster start               --cluster-id ID
 #   .\k3s.ps1 kubernetes cluster stop                --cluster-id ID
+#   .\k3s.ps1 kubernetes cluster kubeconfig          --cluster-id ID           # setta em ~\.kube\config
 #   .\k3s.ps1 kubernetes cluster kubeconfig          --cluster-id ID --raw > arquivo.yaml
 #   .\k3s.ps1 kubernetes cluster list
 #   .\k3s.ps1 kubernetes cluster get                 --cluster-id ID
@@ -459,7 +460,18 @@ function Invoke-Kubeconfig {
         $k3sYaml = Invoke-Ssh -Ip $vmIp -Command "sudo cat /etc/rancher/k3s/k3s.yaml"
         $k3sYaml -replace '127\.0\.0\.1', $vmIp
     } else {
-        Stop-Script "Use --raw para obter o kubeconfig:`n  .\k3s.ps1 kubernetes cluster kubeconfig --cluster-id $clusterId --raw > meu-cluster.yaml"
+        Write-Host "`nConfigurando kubectl para o cluster" -ForegroundColor White
+        Write-Info "Baixando kubeconfig da VM"
+        $kubeDir = "$env:USERPROFILE\.kube"
+        if (-not (Test-Path $kubeDir)) { New-Item -ItemType Directory -Path $kubeDir | Out-Null }
+        $kubeconfigPath = "$kubeDir\config"
+        $k3sYaml = Invoke-Ssh -Ip $vmIp -Command "sudo cat /etc/rancher/k3s/k3s.yaml"
+        ($k3sYaml -replace '127\.0\.0\.1', $vmIp) | Set-Content -Path $kubeconfigPath -Encoding UTF8
+        Write-Ok "kubectl configurado"
+        Write-Host "  Arquivo:  $kubeconfigPath"
+        Write-Host "  Contexto: default"
+        Write-Host ""
+        Write-Ok "Pronto! Teste com: kubectl get nodes"
     }
 }
 
@@ -691,6 +703,7 @@ function Show-Help {
     Write-Host "  .\k3s.ps1 kubernetes cluster create              --name NOME" -ForegroundColor Cyan
     Write-Host "  .\k3s.ps1 kubernetes cluster start               --cluster-id ID" -ForegroundColor Cyan
     Write-Host "  .\k3s.ps1 kubernetes cluster stop                --cluster-id ID" -ForegroundColor Cyan
+    Write-Host "  .\k3s.ps1 kubernetes cluster kubeconfig          --cluster-id ID              # setta em ~\.kube\config" -ForegroundColor Cyan
     Write-Host "  .\k3s.ps1 kubernetes cluster kubeconfig          --cluster-id ID --raw > arquivo.yaml" -ForegroundColor Cyan
     Write-Host "  .\k3s.ps1 kubernetes cluster list" -ForegroundColor Cyan
     Write-Host "  .\k3s.ps1 kubernetes cluster get                 --cluster-id ID" -ForegroundColor Cyan
