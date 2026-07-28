@@ -12,6 +12,7 @@
 #   .\k3s.ps1 kubernetes cluster get                 --cluster-id ID
 #   .\k3s.ps1 kubernetes cluster delete              --cluster-id ID
 #   .\k3s.ps1 kubernetes cluster configure-registry  --cluster-id ID
+#   .\k3s.ps1 kubernetes cluster fix-traefik         --cluster-id ID           # desabilita Traefik em cluster existente
 
 $ErrorActionPreference = 'Stop'
 
@@ -680,6 +681,53 @@ function Invoke-Start {
     Write-Host ("━" * 48)
 }
 
+# ─── COMANDO: fix-traefik ────────────────────────────────────────────────────
+function Invoke-FixTraefik {
+    param([string[]]$CmdArgs)
+
+    $clusterId = ''
+    for ($i = 0; $i -lt $CmdArgs.Count; $i++) {
+        switch ($CmdArgs[$i]) {
+            '--cluster-id' { $clusterId = $CmdArgs[++$i] }
+            default { if ($CmdArgs[$i] -match '^--cluster-id=(.+)') { $clusterId = $Matches[1] } }
+        }
+    }
+    if (-not $clusterId) { Stop-Script "Informe o ID do cluster: --cluster-id ID" }
+
+    $cluster = Get-ClusterById -ClusterId $clusterId
+    if (-not $cluster) { Stop-Script "Cluster '$clusterId' não encontrado. Liste com: .\k3s.ps1 kubernetes cluster list" }
+
+    $name = $cluster.name
+    $vmIp = $cluster.ip
+
+    Write-Host "`nDesabilitando Traefik no cluster '$name'" -ForegroundColor White
+    Write-Host ("━" * 48)
+
+    Write-Info "Removendo HelmCharts do Traefik"
+    try {
+        Invoke-Ssh -Ip $vmIp -Command "sudo k3s kubectl delete helmchart traefik traefik-crd -n kube-system --ignore-not-found=true 2>/dev/null; true" | Out-Null
+    } catch { }
+    Write-Ok "HelmCharts removidos"
+
+    Write-Info "Atualizando config.yaml e reiniciando K3s"
+    Invoke-Ssh -Ip $vmIp -Command "printf 'node-external-ip: $vmIp\ndisable:\n  - traefik\n' | sudo tee /etc/rancher/k3s/config.yaml >/dev/null && sudo systemctl restart k3s"
+    Start-Sleep -Seconds 5
+
+    Write-Info "Aguardando nó ficar pronto"
+    $status = ''
+    for ($i = 1; $i -le 24; $i++) {
+        $status = Invoke-Ssh -Ip $vmIp -Command "sudo k3s kubectl get nodes --no-headers 2>/dev/null | awk '{print `$2}'" 2>$null
+        if ($status -eq 'Ready') { break }
+        Write-Dot; Start-Sleep -Seconds 5
+    }
+    Write-Host ""
+    if ($status -ne 'Ready') { Stop-Script "K3s não ficou Ready após reinicialização." }
+    Write-Ok "Nó pronto"
+
+    Write-Host ""
+    Write-Ok "Traefik desabilitado. A porta 80 está livre para seus workloads."
+}
+
 # ─── COMANDO: network ip-cleanup ─────────────────────────────────────────────
 function Invoke-IpCleanup {
     Write-Host "`nIPs públicos órfãos" -ForegroundColor White
@@ -726,6 +774,7 @@ function Show-Help {
     Write-Host "  .\k3s.ps1 kubernetes cluster get                 --cluster-id ID" -ForegroundColor Cyan
     Write-Host "  .\k3s.ps1 kubernetes cluster delete              --cluster-id ID" -ForegroundColor Cyan
     Write-Host "  .\k3s.ps1 kubernetes cluster configure-registry  --cluster-id ID" -ForegroundColor Cyan
+    Write-Host "  .\k3s.ps1 kubernetes cluster fix-traefik         --cluster-id ID              # desabilita Traefik em cluster existente" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  .\k3s.ps1 network ip-cleanup   — lista e remove IPs públicos órfãos" -ForegroundColor Cyan
     Write-Host ""
@@ -744,6 +793,7 @@ $rest = if ($args.Count -gt 3) { $args[3..($args.Count - 1)] } else { @() }
 switch -Wildcard ($sub.Trim()) {
     "kubernetes cluster create*"             { Invoke-Create            -CmdArgs $rest }
     "kubernetes cluster configure-registry*" { Invoke-ConfigureRegistry -CmdArgs $rest }
+    "kubernetes cluster fix-traefik*"        { Invoke-FixTraefik        -CmdArgs $rest }
     "kubernetes cluster start*"              { Invoke-Start             -CmdArgs $rest }
     "kubernetes cluster stop*"               { Invoke-Stop              -CmdArgs $rest }
     "kubernetes cluster kubeconfig*"         { Invoke-Kubeconfig        -CmdArgs $rest }

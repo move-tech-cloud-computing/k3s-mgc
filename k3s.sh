@@ -12,6 +12,7 @@
 #   k3s.sh kubernetes cluster get                 --cluster-id ID
 #   k3s.sh kubernetes cluster delete              --cluster-id ID
 #   k3s.sh kubernetes cluster configure-registry  --cluster-id ID
+#   k3s.sh kubernetes cluster fix-traefik         --cluster-id ID           # desabilita Traefik em cluster existente
 #   k3s.sh network ip-cleanup
 
 set -euo pipefail
@@ -760,6 +761,53 @@ cmd_configure_registry() {
   setup_registry
 }
 
+# ─── COMANDO: fix-traefik ────────────────────────────────────────────────────
+cmd_fix_traefik() {
+  local cluster_id=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --cluster-id) cluster_id="$2"; shift 2 ;;
+      --cluster-id=*) cluster_id="${1#*=}"; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  [[ -n "$cluster_id" ]] || die "Informe o ID do cluster: --cluster-id ID"
+
+  local cluster
+  cluster=$(cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado. Liste com: ./k3s.sh kubernetes cluster list"
+  local name vm_ip
+  name=$(echo "$cluster"  | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")
+  vm_ip=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['ip'])")
+
+  hdr "Desabilitando Traefik no cluster '${name}'"
+
+  step "Traefik" "Removendo HelmCharts do Traefik"
+  vm_ssh "$vm_ip" \
+    "sudo k3s kubectl delete helmchart traefik traefik-crd -n kube-system --ignore-not-found=true 2>/dev/null; true" \
+    >/dev/null 2>&1 || true
+  step_ok "Traefik" "HelmCharts removidos"
+
+  step "K3s" "Atualizando config.yaml e reiniciando"
+  vm_ssh "$vm_ip" \
+    "printf 'node-external-ip: ${vm_ip}\ndisable:\n  - traefik\n' | sudo tee /etc/rancher/k3s/config.yaml >/dev/null && sudo systemctl restart k3s"
+  sleep 5
+
+  step "Cluster" "Aguardando nó ficar pronto"
+  local status=""
+  for i in $(seq 1 24); do
+    status=$(vm_ssh "$vm_ip" "sudo k3s kubectl get nodes --no-headers 2>/dev/null | awk '{print \$2}'" 2>/dev/null || echo "")
+    [[ "$status" == "Ready" ]] && break
+    sleep 5
+  done
+  [[ "$status" == "Ready" ]] || die "K3s não ficou Ready após reinicialização."
+  step_ok "Cluster" "Nó pronto"
+
+  echo ""
+  ok "Traefik desabilitado. A porta 80 está livre para seus workloads."
+}
+
 # ─── COMANDO: network ip-cleanup ─────────────────────────────────────────────
 cmd_ip_cleanup() {
   hdr "IPs públicos órfãos"
@@ -821,6 +869,7 @@ cmd_help() {
   echo -e "  ${C}./k3s.sh kubernetes cluster get                 --cluster-id ID${N}"
   echo -e "  ${C}./k3s.sh kubernetes cluster delete              --cluster-id ID${N}"
   echo -e "  ${C}./k3s.sh kubernetes cluster configure-registry  --cluster-id ID${N}"
+  echo -e "  ${C}./k3s.sh kubernetes cluster fix-traefik         --cluster-id ID${N}              # desabilita Traefik em cluster existente"
   echo ""
   echo -e "  ${C}./k3s.sh network ip-cleanup${N}   — lista e remove IPs públicos órfãos"
   echo ""
@@ -842,6 +891,7 @@ case "${1:-} ${2:-} ${3:-}" in
   "kubernetes cluster get"*)                 shift 3; cmd_get                 "$@" ;;
   "kubernetes cluster delete"*)              shift 3; cmd_delete              "$@" ;;
   "kubernetes cluster configure-registry"*)  shift 3; cmd_configure_registry  "$@" ;;
+  "kubernetes cluster fix-traefik"*)         shift 3; cmd_fix_traefik         "$@" ;;
   "network ip-cleanup"*)                     shift 2; cmd_ip_cleanup               ;;
   *) cmd_help ;;
 esac
