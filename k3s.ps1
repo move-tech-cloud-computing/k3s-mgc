@@ -293,6 +293,9 @@ function Invoke-Create {
         Write-Ok "K3s instalado"
     }
 
+    # Persiste config.yaml para garantir que Traefik permaneça desabilitado após reinicializações
+    Invoke-Ssh -Ip $vmIp -Command "printf 'node-external-ip: $vmIp\ndisable:\n  - traefik\n' | sudo tee /etc/rancher/k3s/config.yaml >/dev/null"
+
     # Aguarda K3s Ready
     Write-Info "Aguardando cluster ficar pronto"
     $status = ''
@@ -635,16 +638,30 @@ function Invoke-Start {
 
     Wait-Ssh -Ip $vmIp
 
-    # Atualiza node-external-ip no K3s se o IP mudou
+    # Garante que config.yaml sempre desabilita Traefik e reflete o IP atual
+    Write-Info "Verificando configuração do K3s"
+    $needsUpdate = $false
     if ($vmIp -ne $vmIpAntes) {
-        Write-Info "Atualizando IP externo no K3s"
+        $needsUpdate = $true
+    } else {
+        $hasTraefik = Invoke-Ssh -Ip $vmIp -Command "grep -q 'traefik' /etc/rancher/k3s/config.yaml 2>/dev/null && echo yes || echo no"
+        if ($hasTraefik -ne 'yes') { $needsUpdate = $true }
+    }
+
+    if ($needsUpdate) {
         try {
             Invoke-Ssh -Ip $vmIp -Command "printf 'node-external-ip: $vmIp\ndisable:\n  - traefik\n' | sudo tee /etc/rancher/k3s/config.yaml >/dev/null && sudo systemctl restart k3s"
             Start-Sleep -Seconds 5
-            Write-Ok "IP externo atualizado"
+            if ($vmIp -ne $vmIpAntes) {
+                Write-Ok "IP externo atualizado ($vmIpAntes → $vmIp)"
+            } else {
+                Write-Ok "Traefik desabilitado via config.yaml"
+            }
         } catch {
-            Write-Warn "Não foi possível atualizar node-external-ip (continue manualmente se necessário)"
+            Write-Warn "Não foi possível atualizar configuração do K3s"
         }
+    } else {
+        Write-Ok "Configuração já está correta"
     }
 
     Write-Info "Atualizando kubectl"

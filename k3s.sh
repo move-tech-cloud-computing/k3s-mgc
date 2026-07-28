@@ -352,6 +352,10 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
     step_data "Versão" "${k3s_version}"
   fi
 
+  # Persiste config.yaml para garantir que Traefik permaneça desabilitado após reinicializações
+  vm_ssh "$vm_ip" \
+    "printf 'node-external-ip: ${vm_ip}\ndisable:\n  - traefik\n' | sudo tee /etc/rancher/k3s/config.yaml >/dev/null"
+
   # ── Aguarda K3s Ready ────────────────────────────────────────────────────
   step "Cluster" "Aguardando nó ficar pronto"
   local status=""
@@ -615,14 +619,29 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
 
   wait_ssh "$vm_ip"
 
-  # Atualiza node-external-ip no K3s se o IP mudou
+  # Garante que config.yaml sempre desabilita Traefik e reflete o IP atual
+  step "K3s" "Verificando configuração"
+  local needs_update=0
   if [[ "$vm_ip" != "$vm_ip_anterior" ]]; then
-    step "K3s" "Atualizando IP externo"
+    needs_update=1
+  else
+    local has_traefik_disabled
+    has_traefik_disabled=$(vm_ssh "$vm_ip" "grep -q 'traefik' /etc/rancher/k3s/config.yaml 2>/dev/null && echo yes || echo no" 2>/dev/null || echo "no")
+    [[ "$has_traefik_disabled" == "no" ]] && needs_update=1
+  fi
+
+  if [[ "$needs_update" -eq 1 ]]; then
     vm_ssh "$vm_ip" \
       "printf 'node-external-ip: ${vm_ip}\ndisable:\n  - traefik\n' | sudo tee /etc/rancher/k3s/config.yaml >/dev/null && sudo systemctl restart k3s" \
-      2>/dev/null || warn "Não foi possível atualizar node-external-ip (continue manualmente se necessário)"
+      2>/dev/null || warn "Não foi possível atualizar configuração do K3s"
     sleep 5
-    step_ok "K3s" "IP externo atualizado"
+    if [[ "$vm_ip" != "$vm_ip_anterior" ]]; then
+      step_ok "K3s" "IP externo atualizado (${vm_ip_anterior} → ${vm_ip})"
+    else
+      step_ok "K3s" "Traefik desabilitado via config.yaml"
+    fi
+  else
+    step_ok "K3s" "Configuração já está correta"
   fi
 
   step "kubectl" "Atualizando acesso ao cluster"
