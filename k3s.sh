@@ -1596,8 +1596,6 @@ _fix_cluster() {
     diag_parent_ok "Virtual Machine"
     diag_sub_ok "Estado" "ligada"
   elif [[ "$vm_state" == "stopped" ]]; then
-    diag_parent_fail "Virtual Machine"
-    diag_sub_fail "Estado" "desligada — ligando..."
     mgcj mgc virtual-machine instances start "$vm_id" >/dev/null || die "Falha ao ligar VM"
     for _i in $(seq 1 60); do
       vm_state=$(mgcj mgc virtual-machine instances get "$vm_id" | \
@@ -1606,6 +1604,7 @@ _fix_cluster() {
       sleep 5
     done
     [[ "$vm_state" == "running" ]] || die "VM não ficou running após 300s"
+    diag_parent_ok "Virtual Machine"
     diag_sub_ok "Estado" "ligada"
     # Aguarda IP aparecer na API após start
     for _i in $(seq 1 12); do
@@ -1639,7 +1638,6 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
   if [[ -n "$vm_ip" && "$vm_ip" != "—" ]]; then
     diag_sub_ok "IP Público" "$vm_ip"
   else
-    diag_sub_fail "IP Público" "ausente"
     local port_id
     port_id=$(echo "$vm_json" | python3 -c "
 import json,sys
@@ -1736,7 +1734,6 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
   if [[ "$ssh_key_status" == "ok" ]]; then
     diag_subsub_ok "Chave" "sincronizada"
   else
-    diag_subsub_fail "Chave" "$ssh_key_status"
     _fix_ssh_key
     diag_subsub_ok "Chave" "sincronizada"
   fi
@@ -1752,7 +1749,6 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
     if [[ "$sg22_status" == "open" ]]; then
       diag_subsub_ok "Grupo de Segurança" "porta 22 aberta"
     else
-      diag_subsub_fail "Grupo de Segurança" "porta 22 ${sg22_status}"
       _fix_sg_port "$sg_id" 22
       diag_subsub_ok "Grupo de Segurança" "porta 22 aberta"
     fi
@@ -1930,7 +1926,6 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
     kubeconfig_ok=1
     diag_subsub_ok "Kubeconfig" "configurado"
   else
-    diag_subsub_fail "Kubeconfig" "não conecta"
     if [[ "$ssh_accessible" -eq 1 ]]; then
       mkdir -p "${HOME}/.kube"
       vm_ssh "$active_ip" "sudo cat /etc/rancher/k3s/k3s.yaml" \
@@ -1940,7 +1935,7 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
       diag_subsub_ok "Kubeconfig" "reconfigurado"
       kubeconfig_ok=1
     else
-      diag_subsub_skip "Kubeconfig"
+      diag_subsub_fail "Kubeconfig" "sem acesso SSH para reconfigurar"
     fi
   fi
 
@@ -1953,7 +1948,6 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
     if [[ "$sg6443_status" == "open" ]]; then
       diag_subsub_ok "Grupo de Segurança" "porta 6443 aberta"
     else
-      diag_subsub_fail "Grupo de Segurança" "porta 6443 ${sg6443_status}"
       _fix_sg_port "$sg_id" 6443
       diag_subsub_ok "Grupo de Segurança" "porta 6443 aberta"
     fi
@@ -1975,7 +1969,6 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
     if [[ "$k3s_node" == "Ready" ]]; then
       diag_sub_ok "Node" "Ready"
     else
-      diag_sub_fail "Node" "${k3s_node:-não responde} — reiniciando K3s"
       vm_ssh "$active_ip" "sudo systemctl restart k3s" 2>/dev/null || true
       sleep 5
       for _i in $(seq 1 24); do
@@ -1996,7 +1989,6 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
     if [[ "$traefik_disabled" == "yes" ]]; then
       diag_sub_ok "Traefik" "desabilitado"
     else
-      diag_sub_fail "Traefik" "ativo — desabilitando"
       _apply_traefik_fix "$active_ip"
       diag_sub_ok "Traefik" "desabilitado"
     fi
@@ -2013,12 +2005,6 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
       diag_subsub_ok "Secret" "mgc-registry-secret presente"
       diag_subsub_ok "Service Account" "imagePullSecrets configurado"
     else
-      [[ "$secret_ok" -eq 1 ]] \
-        && diag_subsub_ok "Secret" "mgc-registry-secret presente" \
-        || diag_subsub_fail "Secret" "ausente"
-      [[ "$sa_ok" -eq 1 ]] \
-        && diag_subsub_ok "Service Account" "imagePullSecrets configurado" \
-        || diag_subsub_fail "Service Account" "não configurado"
       _ensure_registry
       diag_subsub_ok "Secret" "mgc-registry-secret presente"
       diag_subsub_ok "Service Account" "imagePullSecrets configurado"
