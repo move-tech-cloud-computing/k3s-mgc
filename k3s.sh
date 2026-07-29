@@ -12,6 +12,8 @@
 #   ~/k3s.sh kubernetes cluster delete              --cluster-id ID
 #   ~/k3s.sh kubernetes cluster configure-registry  --cluster-id ID
 #   ~/k3s.sh kubernetes cluster modify              --cluster-id ID
+#   ~/k3s.sh kubernetes cluster ports               --cluster-id ID
+#   ~/k3s.sh kubernetes cluster ports open          --cluster-id ID
 #   ~/k3s.sh kubernetes cluster diagnose
 #   ~/k3s.sh kubernetes cluster diagnose            --cluster-id ID
 #   ~/k3s.sh kubernetes cluster fix
@@ -2050,6 +2052,127 @@ cmd_fix() {
   fi
 }
 
+# ─── COMANDO: ports (listar) ─────────────────────────────────────────────────
+cmd_ports() {
+  local cluster_id=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --cluster-id) cluster_id="$2"; shift 2 ;;
+      --cluster-id=*) cluster_id="${1#*=}"; shift ;;
+      *) shift ;;
+    esac
+  done
+  [[ -n "$cluster_id" ]] || die "Informe o ID do cluster: --cluster-id ID"
+
+  local cluster
+  cluster=$(cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado. Liste com: ~/k3s.sh kubernetes cluster list"
+  local name
+  name=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")
+
+  local sg_id
+  sg_id=$(get_sg_id)
+  [[ -n "$sg_id" ]] || die "Security Group '${SG_NAME}' não encontrado"
+
+  local rules_json
+  rules_json=$(mgcj mgc network security-groups rules list --security-group-id="$sg_id" 2>/dev/null) \
+    || die "Falha ao listar regras do Security Group"
+
+  hdr "Portas abertas — cluster '${name}'"
+  echo ""
+  printf "  %-10s %-8s %-8s %s\n" "PROTOCOLO" "PORTA" "ATÉ" "ORIGEM"
+  printf "  %-10s %-8s %-8s %s\n" "─────────" "──────" "──────" "──────────────"
+  echo ""
+
+  echo "$rules_json" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+rules = data.get('security_group_rules', data.get('rules', []))
+ingress = [r for r in rules if r.get('direction') == 'ingress' and r.get('protocol') not in ('', None) or r.get('port_range_min')]
+ingress.sort(key=lambda r: (r.get('port_range_min') or 0, r.get('ethertype','')))
+for r in ingress:
+    proto  = r.get('protocol') or 'any'
+    p_min  = r.get('port_range_min') or '—'
+    p_max  = r.get('port_range_max') or '—'
+    origem = r.get('remote_ip_prefix') or '0.0.0.0/0'
+    print(f'  {proto:<10} {str(p_min):<8} {str(p_max):<8} {origem}')
+" 2>/dev/null || warn "Sem regras de ingress configuradas"
+  echo ""
+}
+
+# ─── COMANDO: ports open (adicionar porta) ───────────────────────────────────
+cmd_ports_open() {
+  local cluster_id=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --cluster-id) cluster_id="$2"; shift 2 ;;
+      --cluster-id=*) cluster_id="${1#*=}"; shift ;;
+      *) shift ;;
+    esac
+  done
+  [[ -n "$cluster_id" ]] || die "Informe o ID do cluster: --cluster-id ID"
+
+  local cluster
+  cluster=$(cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado. Liste com: ~/k3s.sh kubernetes cluster list"
+  local name
+  name=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")
+
+  local sg_id
+  sg_id=$(get_sg_id)
+  [[ -n "$sg_id" ]] || die "Security Group '${SG_NAME}' não encontrado"
+
+  hdr "Abrir porta — cluster '${name}'"
+  echo ""
+
+  # Porta
+  local port=""
+  while [[ -z "$port" ]]; do
+    read -rp "  Porta: " port
+    if ! [[ "$port" =~ ^[0-9]+$ ]] || [[ "$port" -lt 1 ]] || [[ "$port" -gt 65535 ]]; then
+      echo "  Porta inválida (1–65535)."
+      port=""
+    fi
+  done
+
+  # Protocolo
+  echo ""
+  echo -e "  ${C}→${N} Protocolo:"
+  echo ""
+  echo "    [1] TCP  (recomendado para a maioria dos serviços)"
+  echo "    [2] UDP"
+  echo ""
+  local protocol=""
+  while [[ -z "$protocol" ]]; do
+    read -rp "  Escolha [padrão 1]: " _proto_opt
+    case "${_proto_opt:-1}" in
+      1) protocol="tcp" ;;
+      2) protocol="udp" ;;
+      *) echo "  Opção inválida." ;;
+    esac
+  done
+  echo -e "  ${G}✓${N} Protocolo: ${B}${protocol}${N}"
+  echo ""
+
+  step "Security Group" "Abrindo ${protocol}/${port}"
+  mgcj mgc network security-groups rules create \
+    --security-group-id="$sg_id" --direction="ingress" --ethertype="IPv4" \
+    --protocol="$protocol" --port-range-min="$port" --port-range-max="$port" \
+    --remote-ip-prefix="0.0.0.0/0" >/dev/null \
+    || die "Falha ao criar regra IPv4"
+  mgcj mgc network security-groups rules create \
+    --security-group-id="$sg_id" --direction="ingress" --ethertype="IPv6" \
+    --protocol="$protocol" --port-range-min="$port" --port-range-max="$port" \
+    --remote-ip-prefix="::/0" >/dev/null \
+    || die "Falha ao criar regra IPv6"
+  step_ok "Security Group" "${protocol}/${port} aberta (IPv4 + IPv6)"
+
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo -e "${G}${B}✓ Porta ${port} aberta no cluster '${name}'!${N}"
+  echo ""
+  echo -e "  Verificar:  ${C}~/k3s.sh kubernetes cluster ports --cluster-id ${cluster_id}${N}"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
 # ─── Help ─────────────────────────────────────────────────────────────────────
 cmd_help() {
   echo ""
@@ -2065,6 +2188,8 @@ cmd_help() {
   echo -e "  ${C}~/k3s.sh kubernetes cluster delete              --cluster-id ID${N}"
   echo -e "  ${C}~/k3s.sh kubernetes cluster configure-registry  --cluster-id ID${N}"
   echo -e "  ${C}~/k3s.sh kubernetes cluster modify             --cluster-id ID${N}"
+  echo -e "  ${C}~/k3s.sh kubernetes cluster ports             --cluster-id ID${N}"
+  echo -e "  ${C}~/k3s.sh kubernetes cluster ports open        --cluster-id ID${N}"
   echo -e "  ${C}~/k3s.sh kubernetes cluster diagnose${N}"
   echo -e "  ${C}~/k3s.sh kubernetes cluster diagnose            --cluster-id ID${N}"
   echo -e "  ${C}~/k3s.sh kubernetes cluster fix${N}"
@@ -2082,7 +2207,8 @@ cmd_help() {
 check_update
 check_prereqs
 
-case "${1:-} ${2:-} ${3:-}" in
+case "${1:-} ${2:-} ${3:-} ${4:-}" in
+  "kubernetes cluster ports open"*)          shift 4; cmd_ports_open          "$@" ;;
   "kubernetes cluster create"*)              shift 3; cmd_create              "$@" ;;
   "kubernetes cluster start"*)               shift 3; cmd_start               "$@" ;;
   "kubernetes cluster stop"*)                shift 3; cmd_stop                "$@" ;;
@@ -2092,6 +2218,7 @@ case "${1:-} ${2:-} ${3:-}" in
   "kubernetes cluster delete"*)              shift 3; cmd_delete              "$@" ;;
   "kubernetes cluster configure-registry"*)  shift 3; cmd_configure_registry  "$@" ;;
   "kubernetes cluster modify"*)              shift 3; cmd_modify               "$@" ;;
+  "kubernetes cluster ports"*)               shift 3; cmd_ports               "$@" ;;
 "kubernetes cluster diagnose"*)            shift 3; cmd_diagnose             "$@" ;;
   "kubernetes cluster fix"*)                 shift 3; cmd_fix                  "$@" ;;
   "network ip-cleanup"*)                     shift 2; cmd_ip_cleanup               ;;
