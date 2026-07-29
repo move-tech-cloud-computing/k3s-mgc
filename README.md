@@ -159,6 +159,30 @@ Correções cobertas automaticamente:
 | K3s node não Ready | Reinicia o serviço e aguarda Ready |
 | Registry/Secret/SA ausentes | Reconfigura somente o que está faltando |
 
+### Modificar o tipo de VM
+
+Altera o tipo de VM do cluster sem perder dados. Útil quando o tipo atual não dá conta dos recursos que você está testando.
+
+```bash
+~/k3s.sh kubernetes cluster modify --cluster-id <ID>
+```
+
+O script exibe o tipo atual, abre o mesmo menu de seleção do `create` e executa a troca via `mgc virtual-machine instances retype` — sem snapshot, sem migração manual. Se a VM estiver ligada, ela é parada automaticamente antes do retype e religada logo depois com o kubectl atualizado.
+
+```
+  Tipo atual: BV1-1-10
+
+  → Selecione o novo tipo de VM:
+
+    [1] BV1-1-10   —  1 vCPU    1 GB RAM   10 GB
+    [2] BV1-2-10   —  1 vCPU    2 GB RAM   10 GB
+    [3] BV2-2-10   —  2 vCPUs   2 GB RAM   10 GB
+    [4] BV1-4-10   —  1 vCPU    4 GB RAM   10 GB   (recomendado)
+    [5] BV2-4-10   —  2 vCPUs   4 GB RAM   10 GB
+
+  Escolha [padrão 4]: 4
+```
+
 ### Configurar acesso ao Container Registry
 
 O acesso ao registry é configurado automaticamente durante o `create`. Caso queira configurar depois ou em um cluster já existente:
@@ -232,6 +256,7 @@ Quando você roda `create`, o script:
 | `start` | `~/k3s.sh kubernetes cluster start --cluster-id <ID>` | `mgc kubernetes cluster start` |
 | `stop` | `~/k3s.sh kubernetes cluster stop --cluster-id <ID>` | `mgc kubernetes cluster stop` |
 | `delete` | `~/k3s.sh kubernetes cluster delete --cluster-id <ID>` | `mgc kubernetes cluster delete` |
+| `modify` | `~/k3s.sh kubernetes cluster modify --cluster-id <ID>` | — |
 | `diagnose` | `~/k3s.sh kubernetes cluster diagnose --cluster-id <ID>` | — |
 | `fix` | `~/k3s.sh kubernetes cluster fix --cluster-id <ID>` | — |
 | kubeconfig | Configurado automaticamente em `~/.kube/config` | `mgc kubernetes cluster kubeconfig` |

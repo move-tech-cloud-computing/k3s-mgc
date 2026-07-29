@@ -11,6 +11,7 @@
 #   ~/k3s.sh kubernetes cluster get                 --cluster-id ID
 #   ~/k3s.sh kubernetes cluster delete              --cluster-id ID
 #   ~/k3s.sh kubernetes cluster configure-registry  --cluster-id ID
+#   ~/k3s.sh kubernetes cluster modify              --cluster-id ID
 #   ~/k3s.sh kubernetes cluster diagnose
 #   ~/k3s.sh kubernetes cluster diagnose            --cluster-id ID
 #   ~/k3s.sh kubernetes cluster fix
@@ -781,6 +782,122 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo -e "${G}${B}✓ Cluster '${name}' disponível!${N}"
+  echo ""
+  echo -e "  Verificar:  ${C}kubectl get nodes${N}"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+# ─── COMANDO: modify ─────────────────────────────────────────────────────────
+cmd_modify() {
+  local cluster_id=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --cluster-id) cluster_id="$2"; shift 2 ;;
+      --cluster-id=*) cluster_id="${1#*=}"; shift ;;
+      *) shift ;;
+    esac
+  done
+  [[ -n "$cluster_id" ]] || die "Informe o ID do cluster: --cluster-id ID"
+
+  local cluster
+  cluster=$(cluster_by_id "$cluster_id") || die "Cluster '${cluster_id}' não encontrado. Liste com: ~/k3s.sh kubernetes cluster list"
+  local name current_type
+  name=$(echo "$cluster" | python3 -c "import json,sys; print(json.load(sys.stdin)['name'])")
+  current_type=$(mgcj mgc virtual-machine instances get "$cluster_id" | \
+    python3 -c "import json,sys; print(json.load(sys.stdin).get('machine_type',{}).get('name','—'))" 2>/dev/null || echo "—")
+
+  hdr "Modificando cluster '${name}'"
+  echo ""
+  echo -e "  Tipo atual: ${B}${current_type}${N}"
+  echo ""
+  echo -e "  ${C}→${N} Selecione o novo tipo de VM:"
+  echo ""
+  echo "    [1] BV1-1-10   —  1 vCPU    1 GB RAM   10 GB"
+  echo "    [2] BV1-2-10   —  1 vCPU    2 GB RAM   10 GB"
+  echo "    [3] BV2-2-10   —  2 vCPUs   2 GB RAM   10 GB"
+  echo -e "    [4] BV1-4-10   —  1 vCPU    4 GB RAM   10 GB   ${D}(recomendado)${N}"
+  echo "    [5] BV2-4-10   —  2 vCPUs   4 GB RAM   10 GB"
+  echo ""
+  local machine_type=""
+  while [[ -z "$machine_type" ]]; do
+    read -rp "  Escolha [padrão 4]: " _vm_opt
+    case "${_vm_opt:-4}" in
+      1) machine_type="BV1-1-10" ;;
+      2) machine_type="BV1-2-10" ;;
+      3) machine_type="BV2-2-10" ;;
+      4) machine_type="BV1-4-10" ;;
+      5) machine_type="BV2-4-10" ;;
+      *) echo "  Opção inválida." ;;
+    esac
+  done
+
+  if [[ "$machine_type" == "$current_type" ]]; then
+    echo ""
+    warn "Tipo selecionado (${machine_type}) é igual ao atual. Nenhuma alteração feita."
+    exit 0
+  fi
+
+  echo -e "  ${G}✓${N} Novo tipo: ${B}${machine_type}${N}"
+  echo ""
+
+  # Verifica estado da VM para saber se precisa religar depois
+  local vm_state
+  vm_state=$(mgcj mgc virtual-machine instances get "$cluster_id" | \
+    python3 -c "import json,sys; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || echo "")
+
+  local was_running=0
+  if [[ "$vm_state" == "running" ]]; then
+    was_running=1
+    step "Máquina virtual" "Parando VM para retype"
+    mgcj mgc virtual-machine instances stop "$cluster_id" >/dev/null || die "Falha ao parar VM"
+    for i in $(seq 1 30); do
+      vm_state=$(mgcj mgc virtual-machine instances get "$cluster_id" | \
+        python3 -c "import json,sys; print(json.load(sys.stdin).get('state',''))" 2>/dev/null || echo "")
+      [[ "$vm_state" == "stopped" ]] && break
+      sleep 5
+    done
+    [[ "$vm_state" == "stopped" ]] || die "VM não ficou stopped a tempo"
+    step_ok "Máquina virtual" "Parada"
+  fi
+
+  step "Máquina virtual" "Alterando tipo: ${current_type} → ${machine_type}"
+  mgcj mgc virtual-machine instances retype "$cluster_id" \
+    --machine-type.name="$machine_type" >/dev/null || die "Falha ao alterar o tipo da VM"
+  step_ok "Máquina virtual" "Tipo alterado para ${machine_type}"
+
+  if [[ "$was_running" -eq 1 ]]; then
+    step "Máquina virtual" "Religando VM"
+    mgcj mgc virtual-machine instances start "$cluster_id" >/dev/null || die "Falha ao religar VM"
+
+    step "IP público" "Aguardando IP"
+    local vm_ip=""
+    for i in $(seq 1 30); do
+      vm_ip=$(mgcj mgc virtual-machine instances get "$cluster_id" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+ifaces=d.get('network',{}).get('interfaces',[])
+print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
+" 2>/dev/null || echo "")
+      [[ -n "$vm_ip" ]] && break
+      sleep 5
+    done
+    [[ -n "$vm_ip" ]] || die "IP público não disponível após religar VM."
+    step_ok "IP público" "${vm_ip}"
+
+    wait_ssh "$vm_ip"
+
+    step "kubectl" "Atualizando acesso ao cluster"
+    mkdir -p "${HOME}/.kube"
+    vm_ssh "$vm_ip" "sudo cat /etc/rancher/k3s/k3s.yaml" \
+      | sed "s/127.0.0.1/${vm_ip}/g" \
+      > "${HOME}/.kube/config"
+    chmod 600 "${HOME}/.kube/config"
+    step_ok "kubectl" "Configurado"
+  fi
+
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo -e "${G}${B}✓ Cluster '${name}' agora usa ${machine_type}!${N}"
   echo ""
   echo -e "  Verificar:  ${C}kubectl get nodes${N}"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1952,6 +2069,7 @@ cmd_help() {
   echo -e "  ${C}~/k3s.sh kubernetes cluster get                 --cluster-id ID${N}"
   echo -e "  ${C}~/k3s.sh kubernetes cluster delete              --cluster-id ID${N}"
   echo -e "  ${C}~/k3s.sh kubernetes cluster configure-registry  --cluster-id ID${N}"
+  echo -e "  ${C}~/k3s.sh kubernetes cluster modify             --cluster-id ID${N}"
   echo -e "  ${C}~/k3s.sh kubernetes cluster diagnose${N}"
   echo -e "  ${C}~/k3s.sh kubernetes cluster diagnose            --cluster-id ID${N}"
   echo -e "  ${C}~/k3s.sh kubernetes cluster fix${N}"
@@ -1978,6 +2096,7 @@ case "${1:-} ${2:-} ${3:-}" in
   "kubernetes cluster get"*)                 shift 3; cmd_get                 "$@" ;;
   "kubernetes cluster delete"*)              shift 3; cmd_delete              "$@" ;;
   "kubernetes cluster configure-registry"*)  shift 3; cmd_configure_registry  "$@" ;;
+  "kubernetes cluster modify"*)              shift 3; cmd_modify               "$@" ;;
 "kubernetes cluster diagnose"*)            shift 3; cmd_diagnose             "$@" ;;
   "kubernetes cluster fix"*)                 shift 3; cmd_fix                  "$@" ;;
   "network ip-cleanup"*)                     shift 2; cmd_ip_cleanup               ;;
