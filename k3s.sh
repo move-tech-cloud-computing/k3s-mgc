@@ -2077,25 +2077,27 @@ cmd_ports() {
   rules_json=$(mgcj mgc network security-groups rules list --security-group-id="$sg_id" 2>/dev/null) \
     || die "Falha ao listar regras do Security Group"
 
-  hdr "Portas abertas — cluster '${name}'"
+  hdr "Portas — cluster '${name}'"
   echo ""
-  printf "  %-10s %-8s %-8s %s\n" "PROTOCOLO" "PORTA" "ATÉ" "ORIGEM"
-  printf "  %-10s %-8s %-8s %s\n" "─────────" "──────" "──────" "──────────────"
+  printf "  %-8s %-10s %-8s %s\n" "DIREÇÃO" "PROTOCOLO" "PORTA" "ORIGEM"
+  printf "  %-8s %-10s %-8s %s\n" "───────" "─────────" "──────" "──────────────"
   echo ""
 
   echo "$rules_json" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 rules = data.get('security_group_rules', data.get('rules', []))
-ingress = [r for r in rules if r.get('direction') == 'ingress' and r.get('protocol') not in ('', None) or r.get('port_range_min')]
-ingress.sort(key=lambda r: (r.get('port_range_min') or 0, r.get('ethertype','')))
-for r in ingress:
-    proto  = r.get('protocol') or 'any'
-    p_min  = r.get('port_range_min') or '—'
-    p_max  = r.get('port_range_max') or '—'
-    origem = r.get('remote_ip_prefix') or '0.0.0.0/0'
-    print(f'  {proto:<10} {str(p_min):<8} {str(p_max):<8} {origem}')
-" 2>/dev/null || warn "Sem regras de ingress configuradas"
+rules = [r for r in rules if r.get('port_range_min')]
+rules.sort(key=lambda r: (r.get('direction',''), r.get('port_range_min') or 0, r.get('ethertype','')))
+for r in rules:
+    direcao = 'entrada' if r.get('direction') == 'ingress' else 'saída'
+    proto   = r.get('protocol') or 'any'
+    p_min   = r.get('port_range_min') or '—'
+    p_max   = r.get('port_range_max')
+    porta   = str(p_min) if not p_max or p_max == p_min else f'{p_min}-{p_max}'
+    origem  = r.get('remote_ip_prefix') or '0.0.0.0/0'
+    print(f'  {direcao:<8} {proto:<10} {porta:<8} {origem}')
+" 2>/dev/null || warn "Sem regras configuradas"
   echo ""
 }
 
