@@ -41,7 +41,31 @@ Os comandos seguem o mesmo padrão do `mgc kubernetes cluster`:
 ~/k3s.sh kubernetes cluster create
 ```
 
-O script solicita o nome do cluster e o tipo de VM interativamente. Ao final (≈5 minutos), o kubectl já está configurado automaticamente. O script também pergunta se você deseja vincular um **Container Registry** — se responder `s`, você pode selecionar um registry existente ou criar um novo, e o secret de acesso é criado automaticamente no cluster.
+O script coleta três informações antes de provisionar:
+
+**1. Nome do cluster**
+```
+  Nome do cluster: meu-cluster
+```
+
+**2. Tipo de VM**
+```
+  → Selecione o tipo de VM:
+
+    [1] BV1-1-10   —  1 vCPU    1 GB RAM   10 GB
+    [2] BV1-2-10   —  1 vCPU    2 GB RAM   10 GB
+    [3] BV2-2-10   —  2 vCPUs   2 GB RAM   10 GB
+    [4] BV1-4-10   —  1 vCPU    4 GB RAM   10 GB   (recomendado)
+    [5] BV2-4-10   —  2 vCPUs   4 GB RAM   10 GB
+
+  Escolha [padrão 4]:
+```
+
+A partir daí o script provisiona a VM, instala o K3s e configura o kubectl automaticamente (≈5 minutos).
+
+**3. Container Registry (opcional)**
+
+Ao final, o script pergunta se você deseja vincular um registry. Se responder `s`, pode selecionar um existente ou criar um novo — o secret de acesso é criado automaticamente no cluster.
 
 ```
 ✓ kubectl configurado (/Users/voce/.kube/config)
