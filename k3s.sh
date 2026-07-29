@@ -2080,7 +2080,7 @@ cmd_ports() {
   hdr "Portas — cluster '${name}'"
   echo ""
   printf "  %-8s %-6s %-10s %-8s %s\n" "DIREÇÃO" "TIPO" "PROTOCOLO" "PORTA" "ORIGEM"
-  printf "  %-8s %-6s %-10s %-8s %s\n" "───────" "────" "─────────" "──────" "──────────────"
+  printf "  %-8s %-6s %-10s %-8s %s\n" "────────" "──────" "──────────" "────────" "──────────────"
   echo ""
 
   echo "$rules_json" | python3 -c "
