@@ -1904,6 +1904,37 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
+# ─── COMANDO: fix ─────────────────────────────────────────────────────────────
+cmd_fix() {
+  local cluster_id=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --cluster-id)   cluster_id="$2"; shift 2 ;;
+      --cluster-id=*) cluster_id="${1#*=}"; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -n "$cluster_id" ]]; then
+    cluster_by_id "$cluster_id" >/dev/null \
+      || die "Cluster '${cluster_id}' não encontrado. Liste com: ./k3s.sh kubernetes cluster list"
+    _fix_cluster "$cluster_id"
+  else
+    local clusters
+    clusters=$(list_clusters)
+    if [[ -z "$clusters" ]]; then
+      echo "Nenhum cluster encontrado."
+      return
+    fi
+    while IFS='|' read -r vm_id name ip; do
+      [[ -z "$vm_id" ]] && continue
+      _fix_cluster "$vm_id"
+    done <<< "$clusters"
+  fi
+}
+
+# ─── Help ─────────────────────────────────────────────────────────────────────
 cmd_help() {
   echo ""
   echo -e "${B}k3s.sh${N} — Kubernetes local via K3s na Magalu Cloud"
@@ -1917,8 +1948,10 @@ cmd_help() {
   echo -e "  ${C}./k3s.sh kubernetes cluster get                 --cluster-id ID${N}"
   echo -e "  ${C}./k3s.sh kubernetes cluster delete              --cluster-id ID${N}"
   echo -e "  ${C}./k3s.sh kubernetes cluster configure-registry  --cluster-id ID${N}"
-  echo -e "  ${C}./k3s.sh kubernetes cluster diagnose${N}                           # diagnóstico de todos os clusters"
-  echo -e "  ${C}./k3s.sh kubernetes cluster diagnose           --cluster-id ID${N}  # diagnóstico de um cluster específico"
+echo -e "  ${C}./k3s.sh kubernetes cluster diagnose${N}                                        # diagnóstico de todos os clusters"
+  echo -e "  ${C}./k3s.sh kubernetes cluster diagnose           --cluster-id ID${N}              # diagnóstico de um cluster específico"
+  echo -e "  ${C}./k3s.sh kubernetes cluster fix${N}                                              # recupera acesso em todos os clusters com problema"
+  echo -e "  ${C}./k3s.sh kubernetes cluster fix              --cluster-id ID${N}              # recupera acesso em um cluster específico"
   echo ""
   echo -e "  ${C}./k3s.sh network ip-cleanup${N}   — lista e remove IPs públicos órfãos"
   echo ""
@@ -1941,7 +1974,8 @@ case "${1:-} ${2:-} ${3:-}" in
   "kubernetes cluster get"*)                 shift 3; cmd_get                 "$@" ;;
   "kubernetes cluster delete"*)              shift 3; cmd_delete              "$@" ;;
   "kubernetes cluster configure-registry"*)  shift 3; cmd_configure_registry  "$@" ;;
-  "kubernetes cluster diagnose"*)            shift 3; cmd_diagnose             "$@" ;;
+"kubernetes cluster diagnose"*)            shift 3; cmd_diagnose             "$@" ;;
+  "kubernetes cluster fix"*)                 shift 3; cmd_fix                  "$@" ;;
   "network ip-cleanup"*)                     shift 2; cmd_ip_cleanup               ;;
   *) cmd_help ;;
 esac
