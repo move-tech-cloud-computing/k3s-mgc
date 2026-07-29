@@ -462,10 +462,6 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
     step_data "Versão" "${k3s_version}"
   fi
 
-  # Persiste config.yaml para garantir que Traefik permaneça desabilitado após reinicializações
-  vm_ssh "$vm_ip" \
-    "printf 'node-external-ip: ${vm_ip}\ndisable:\n  - traefik\n' | sudo tee /etc/rancher/k3s/config.yaml >/dev/null"
-
   # ── Aguarda K3s Ready ────────────────────────────────────────────────────
   step "Cluster" "Aguardando nó ficar pronto"
   local status=""
@@ -476,6 +472,10 @@ print(ifaces[0].get('associated_public_ipv4','') if ifaces else '')
   done
   [[ "$status" == "Ready" ]] || die "K3s não ficou Ready após 120s."
   step_ok "Cluster" "Nó pronto"
+
+  # Persiste config.yaml após K3s Ready — garante que o diretório já existe
+  vm_ssh "$vm_ip" \
+    "printf 'node-external-ip: ${vm_ip}\ndisable:\n  - traefik\n' | sudo tee /etc/rancher/k3s/config.yaml >/dev/null"
 
   # ── Kubeconfig ───────────────────────────────────────────────────────────
   step "kubectl" "Configurando acesso ao cluster"
