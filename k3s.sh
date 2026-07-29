@@ -863,6 +863,15 @@ cmd_modify() {
   step "Máquina virtual" "Alterando tipo: ${current_type} → ${machine_type}"
   mgcj mgc virtual-machine instances retype "$cluster_id" \
     --machine-type.name="$machine_type" >/dev/null || die "Falha ao alterar o tipo da VM"
+
+  # Aguarda a API aceitar operações na VM após o retype
+  local retype_status=""
+  for i in $(seq 1 24); do
+    retype_status=$(mgcj mgc virtual-machine instances get "$cluster_id" | \
+      python3 -c "import json,sys; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
+    [[ "$retype_status" == "completed" ]] && break
+    sleep 5
+  done
   step_ok "Máquina virtual" "Tipo alterado para ${machine_type}"
 
   if [[ "$was_running" -eq 1 ]]; then
