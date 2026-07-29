@@ -3,19 +3,20 @@
 # Move Tech 2026 (Magalu × Prósper Digital Skills)
 #
 # Uso:
-#   k3s.sh kubernetes cluster create
-#   k3s.sh kubernetes cluster start               --cluster-id ID
-#   k3s.sh kubernetes cluster stop                --cluster-id ID
-#   k3s.sh kubernetes cluster kubeconfig          --cluster-id ID > kubeconfig.yaml
-#   k3s.sh kubernetes cluster list
-#   k3s.sh kubernetes cluster get                 --cluster-id ID
-#   k3s.sh kubernetes cluster delete              --cluster-id ID
-#   k3s.sh kubernetes cluster configure-registry  --cluster-id ID
-#   k3s.sh kubernetes cluster diagnose
-#   k3s.sh kubernetes cluster diagnose            --cluster-id ID
-#   k3s.sh kubernetes cluster fix
-#   k3s.sh kubernetes cluster fix                 --cluster-id ID
-#   k3s.sh network ip-cleanup
+#   ~/k3s.sh kubernetes cluster list
+#   ~/k3s.sh kubernetes cluster create
+#   ~/k3s.sh kubernetes cluster start               --cluster-id ID
+#   ~/k3s.sh kubernetes cluster stop                --cluster-id ID
+#   ~/k3s.sh kubernetes cluster kubeconfig          --cluster-id ID > kubeconfig.yaml
+#   ~/k3s.sh kubernetes cluster get                 --cluster-id ID
+#   ~/k3s.sh kubernetes cluster delete              --cluster-id ID
+#   ~/k3s.sh kubernetes cluster configure-registry  --cluster-id ID
+#   ~/k3s.sh kubernetes cluster diagnose                           # diagnóstico de todos os clusters
+#   ~/k3s.sh kubernetes cluster diagnose            --cluster-id ID  # diagnóstico de um cluster específico
+#   ~/k3s.sh kubernetes cluster fix                                # recupera acesso em todos os clusters com problema
+#   ~/k3s.sh kubernetes cluster fix                 --cluster-id ID  # recupera acesso em um cluster específico
+#
+#   ~/k3s.sh network ip-cleanup   — lista e remove IPs públicos órfãos
 
 set -euo pipefail
 

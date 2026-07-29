@@ -25,8 +25,8 @@ Você também precisa:
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/move-tech-cloud-computing/k3s-mgc/main/k3s.sh -o k3s.sh
-chmod +x k3s.sh
+curl -fsSL https://raw.githubusercontent.com/move-tech-cloud-computing/k3s-mgc/main/k3s.sh -o ~/k3s.sh
+chmod +x ~/k3s.sh
 ```
 
 ### Windows (PowerShell)
@@ -40,7 +40,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 Baixe o script:
 
 ```powershell
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/move-tech-cloud-computing/k3s-mgc/main/k3s.ps1 -OutFile k3s.ps1
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/move-tech-cloud-computing/k3s-mgc/main/k3s.ps1 -OutFile ~\k3s.ps1
 ```
 
 ---
@@ -51,13 +51,13 @@ Os comandos seguem o mesmo padrão do `mgc kubernetes cluster`. Nos exemplos aba
 
 | Sistema | Comando |
 |---------|---------|
-| macOS / Linux | `./k3s.sh kubernetes cluster ...` |
-| Windows | `.\k3s.ps1 kubernetes cluster ...` |
+| macOS / Linux | `~/k3s.sh kubernetes cluster ...` |
+| Windows | `~\k3s.ps1 kubernetes cluster ...` |
 
 ### Criar o cluster
 
 ```bash
-./k3s.sh kubernetes cluster create
+~/k3s.sh kubernetes cluster create
 ```
 
 O script solicita o nome do cluster e o tipo de VM interativamente. Ao final (≈5 minutos), o kubectl já está configurado automaticamente. O script também pergunta se você deseja vincular um **Container Registry** — se responder `s`, você pode selecionar um registry existente ou criar um novo, e o secret de acesso é criado automaticamente no cluster.
@@ -83,8 +83,8 @@ O script solicita o nome do cluster e o tipo de VM interativamente. Ao final (�
 Use `stop` para desligar a VM sem destruir o cluster, e `start` para religar:
 
 ```bash
-./k3s.sh kubernetes cluster stop  --cluster-id <ID>
-./k3s.sh kubernetes cluster start --cluster-id <ID>
+~/k3s.sh kubernetes cluster stop  --cluster-id <ID>
+~/k3s.sh kubernetes cluster start --cluster-id <ID>
 ```
 
 O `start` aguarda a VM inicializar e atualiza o `~/.kube/config` automaticamente — inclusive se o IP público mudar.
@@ -95,10 +95,10 @@ Exibe o estado detalhado do cluster em três seções: **Recursos**, **Conectivi
 
 ```bash
 # Todos os clusters
-./k3s.sh kubernetes cluster diagnose
+~/k3s.sh kubernetes cluster diagnose
 
 # Cluster específico
-./k3s.sh kubernetes cluster diagnose --cluster-id <ID>
+~/k3s.sh kubernetes cluster diagnose --cluster-id <ID>
 ```
 
 ```
@@ -134,10 +134,10 @@ Verifica cada ponto do diagnóstico e corrige automaticamente o que estiver com 
 
 ```bash
 # Todos os clusters
-./k3s.sh kubernetes cluster fix
+~/k3s.sh kubernetes cluster fix
 
 # Cluster específico
-./k3s.sh kubernetes cluster fix --cluster-id <ID>
+~/k3s.sh kubernetes cluster fix --cluster-id <ID>
 ```
 
 Correções cobertas automaticamente:
@@ -159,16 +159,16 @@ Correções cobertas automaticamente:
 O acesso ao registry é configurado automaticamente durante o `create`. Caso queira configurar depois ou em um cluster já existente:
 
 ```bash
-./k3s.sh kubernetes cluster configure-registry --cluster-id <ID>
+~/k3s.sh kubernetes cluster configure-registry --cluster-id <ID>
 ```
 
 ### Outros comandos
 
 ```bash
-./k3s.sh kubernetes cluster list
-./k3s.sh kubernetes cluster get    --cluster-id <ID>
-./k3s.sh kubernetes cluster delete --cluster-id <ID>
-./k3s.sh network ip-cleanup
+~/k3s.sh kubernetes cluster list
+~/k3s.sh kubernetes cluster get    --cluster-id <ID>
+~/k3s.sh kubernetes cluster delete --cluster-id <ID>
+~/k3s.sh network ip-cleanup
 ```
 
 ### Região
@@ -201,12 +201,12 @@ Quando você roda `create`, o script:
 
 | | K3s (este script) | MKS |
 |---|---|---|
-| `create` | `./k3s.sh kubernetes cluster create` | `mgc kubernetes cluster create` |
-| `start` | `./k3s.sh kubernetes cluster start --cluster-id <ID>` | `mgc kubernetes cluster start` |
-| `stop` | `./k3s.sh kubernetes cluster stop --cluster-id <ID>` | `mgc kubernetes cluster stop` |
-| `delete` | `./k3s.sh kubernetes cluster delete --cluster-id <ID>` | `mgc kubernetes cluster delete` |
-| `diagnose` | `./k3s.sh kubernetes cluster diagnose --cluster-id <ID>` | — |
-| `fix` | `./k3s.sh kubernetes cluster fix --cluster-id <ID>` | — |
+| `create` | `~/k3s.sh kubernetes cluster create` | `mgc kubernetes cluster create` |
+| `start` | `~/k3s.sh kubernetes cluster start --cluster-id <ID>` | `mgc kubernetes cluster start` |
+| `stop` | `~/k3s.sh kubernetes cluster stop --cluster-id <ID>` | `mgc kubernetes cluster stop` |
+| `delete` | `~/k3s.sh kubernetes cluster delete --cluster-id <ID>` | `mgc kubernetes cluster delete` |
+| `diagnose` | `~/k3s.sh kubernetes cluster diagnose --cluster-id <ID>` | — |
+| `fix` | `~/k3s.sh kubernetes cluster fix --cluster-id <ID>` | — |
 | kubeconfig | Configurado automaticamente em `~/.kube/config` | `mgc kubernetes cluster kubeconfig` |
 | Nós | 1 (single-node) | Multi-node gerenciado |
 | Custo | Apenas a VM | Serviço gerenciado |
