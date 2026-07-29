@@ -56,17 +56,11 @@ Os comandos seguem o mesmo padrão do `mgc kubernetes cluster`. Nos exemplos aba
 
 ### Criar o cluster
 
-**macOS / Linux**
 ```bash
-./k3s.sh kubernetes cluster create --name meu-cluster
+./k3s.sh kubernetes cluster create
 ```
 
-**Windows**
-```powershell
-.\k3s.ps1 kubernetes cluster create --name meu-cluster
-```
-
-Ao final (≈5 minutos), o kubectl já está configurado automaticamente. O script também pergunta se você deseja vincular um **Container Registry** — se responder `s`, você pode selecionar um registry existente ou criar um novo, e o secret de acesso é criado automaticamente no cluster.
+O script solicita o nome do cluster e o tipo de VM interativamente. Ao final (≈5 minutos), o kubectl já está configurado automaticamente. O script também pergunta se você deseja vincular um **Container Registry** — se responder `s`, você pode selecionar um registry existente ou criar um novo, e o secret de acesso é criado automaticamente no cluster.
 
 ```
 ✓ kubectl configurado (/Users/voce/.kube/config)
@@ -82,59 +76,99 @@ Ao final (≈5 minutos), o kubectl já está configurado automaticamente. O scri
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ✓ Cluster 'meu-cluster' pronto!
-
-  Verifique:
-  kubectl get nodes
 ```
 
 ### Parar e iniciar o cluster
 
 Use `stop` para desligar a VM sem destruir o cluster, e `start` para religar:
 
-**macOS / Linux**
 ```bash
 ./k3s.sh kubernetes cluster stop  --cluster-id <ID>
 ./k3s.sh kubernetes cluster start --cluster-id <ID>
 ```
 
-**Windows**
-```powershell
-.\k3s.ps1 kubernetes cluster stop  --cluster-id <ID>
-.\k3s.ps1 kubernetes cluster start --cluster-id <ID>
+O `start` aguarda a VM inicializar e atualiza o `~/.kube/config` automaticamente — inclusive se o IP público mudar.
+
+### Diagnosticar o cluster
+
+Exibe o estado detalhado do cluster em três seções: **Recursos**, **Conectividade** e **Kubernetes**.
+
+```bash
+# Todos os clusters
+./k3s.sh kubernetes cluster diagnose
+
+# Cluster específico
+./k3s.sh kubernetes cluster diagnose --cluster-id <ID>
 ```
 
-O `start` aguarda a VM inicializar e atualiza o `~/.kube/config` automaticamente — inclusive se o IP público mudar.
+```
+┌ Diagnóstico do cluster 'meu-cluster'
+
+  Recursos
+  ✓ Virtual Machine
+    ✓ Estado                 ligada
+    ✓ IP Público             201.23.85.63
+
+  Conectividade
+  ✓ SSH
+    ✓ Chave                  sincronizada
+    ✓ Grupo de Segurança     porta 22 aberta
+    ✓ Conexão                autenticada
+  ✓ kubectl
+    ✓ Kubeconfig             configurado
+    ✓ Grupo de Segurança     porta 6443 aberta
+    ✓ Conexão                API Server respondendo
+
+  Kubernetes
+  ✓ Cluster K3s
+    ✓ Node                   Ready
+    ✓ Traefik                desabilitado
+    ✓ Container Registry
+      ✓ Secret               mgc-registry-secret presente
+      ✓ Service Account      imagePullSecrets configurado
+```
+
+### Corrigir o cluster
+
+Verifica cada ponto do diagnóstico e corrige automaticamente o que estiver com problema — sem tocar no que já está funcionando.
+
+```bash
+# Todos os clusters
+./k3s.sh kubernetes cluster fix
+
+# Cluster específico
+./k3s.sh kubernetes cluster fix --cluster-id <ID>
+```
+
+Correções cobertas automaticamente:
+
+| Problema | Ação |
+|----------|------|
+| VM desligada | Liga e aguarda estado running |
+| IP público ausente | Menu interativo para vincular IP livre ou criar novo |
+| Security Group bloqueado | Adiciona regras de acesso para as portas 22 e 6443 |
+| Chave SSH fora de sincronia | Recadastra no MGC |
+| SSH inacessível | Recovery via snapshot, preservando o IP público |
+| Traefik ativo | Desabilita e reinicia K3s |
+| Kubeconfig inválido | Reconfigura `~/.kube/config` |
+| K3s node não Ready | Reinicia o serviço e aguarda Ready |
+| Registry/Secret/SA ausentes | Reconfigura somente o que está faltando |
 
 ### Configurar acesso ao Container Registry
 
-O acesso ao registry é configurado automaticamente durante o `create` (o script pergunta ao final). Caso queira configurar depois ou em um cluster já existente:
+O acesso ao registry é configurado automaticamente durante o `create`. Caso queira configurar depois ou em um cluster já existente:
 
-**macOS / Linux**
 ```bash
 ./k3s.sh kubernetes cluster configure-registry --cluster-id <ID>
 ```
 
-**Windows**
-```powershell
-.\k3s.ps1 kubernetes cluster configure-registry --cluster-id <ID>
-```
-
-O comando lista os registries disponíveis na sua conta, permite criar um novo, e configura o secret `mgc-registry-secret` no cluster automaticamente.
-
 ### Outros comandos
 
-**macOS / Linux**
 ```bash
 ./k3s.sh kubernetes cluster list
 ./k3s.sh kubernetes cluster get    --cluster-id <ID>
 ./k3s.sh kubernetes cluster delete --cluster-id <ID>
-```
-
-**Windows**
-```powershell
-.\k3s.ps1 kubernetes cluster list
-.\k3s.ps1 kubernetes cluster get    --cluster-id <ID>
-.\k3s.ps1 kubernetes cluster delete --cluster-id <ID>
+./k3s.sh network ip-cleanup
 ```
 
 ### Região
@@ -152,18 +186,14 @@ mgc profile region set
 Quando você roda `create`, o script:
 
 1. Verifica pré-requisitos e autenticação no `mgc`
-2. Gera a chave SSH `~/.ssh/k3s-cluster` e cadastra na Magalu Cloud (apenas uma vez)
-3. Cria (ou reutiliza) um **Security Group** `sg-k3s` com as portas 22, 8000 e 6443
-4. Cria uma **VM** `k3s-cluster` (Ubuntu 24.04, tipo `BV2-2-40`) na `vpc_default`
+2. Gera a chave SSH `~/.ssh/ssh-k3s-cluster` e cadastra na Magalu Cloud (apenas uma vez)
+3. Cria (ou reutiliza) um **Security Group** `sg-k3s-cluster` com as portas 22 e 6443
+4. Cria uma **VM** na `vpc_default` com o tipo escolhido interativamente
 5. Aguarda SSH ficar disponível
-6. Instala o **K3s** via script oficial (`get.k3s.io`)
+6. Instala o **K3s** via script oficial (`get.k3s.io`) com Traefik desabilitado
 7. Aguarda o nó ficar `Ready`
 8. Salva o kubeconfig em `~/.kube/config` e configura o kubectl automaticamente
 9. (Opcional) Pergunta se deseja vincular um Container Registry — se sim, cria o secret `mgc-registry-secret` e atualiza o service account `default`
-
-O script é **idempotente**: se falhar em qualquer etapa, rode novamente — ele detecta o que já foi criado e continua de onde parou.
-
-Quando você roda `delete`, o script remove a VM, o Security Group e a chave SSH da Magalu Cloud.
 
 ---
 
@@ -171,32 +201,16 @@ Quando você roda `delete`, o script remove a VM, o Security Group e a chave SSH
 
 | | K3s (este script) | MKS |
 |---|---|---|
-| `create` | `./k3s.sh kubernetes cluster create --name <NOME>` | `mgc kubernetes cluster create` |
+| `create` | `./k3s.sh kubernetes cluster create` | `mgc kubernetes cluster create` |
 | `start` | `./k3s.sh kubernetes cluster start --cluster-id <ID>` | `mgc kubernetes cluster start` |
 | `stop` | `./k3s.sh kubernetes cluster stop --cluster-id <ID>` | `mgc kubernetes cluster stop` |
 | `delete` | `./k3s.sh kubernetes cluster delete --cluster-id <ID>` | `mgc kubernetes cluster delete` |
+| `diagnose` | `./k3s.sh kubernetes cluster diagnose --cluster-id <ID>` | — |
+| `fix` | `./k3s.sh kubernetes cluster fix --cluster-id <ID>` | — |
 | kubeconfig | Configurado automaticamente em `~/.kube/config` | `mgc kubernetes cluster kubeconfig` |
 | Nós | 1 (single-node) | Multi-node gerenciado |
 | Custo | Apenas a VM | Serviço gerenciado |
 | Alta disponibilidade | Não | Sim |
-
----
-
-## Estado local
-
-O script mantém um arquivo de estado com os IDs dos recursos criados. Se precisar inspecionar ou limpar manualmente:
-
-**macOS / Linux**
-```bash
-cat ~/.k3s-mgc/clusters.json          # ver estado atual
-echo '{}' > ~/.k3s-mgc/clusters.json  # limpar
-```
-
-**Windows**
-```powershell
-Get-Content "$env:USERPROFILE\.k3s-mgc\clusters.json"        # ver estado atual
-'{}' | Set-Content "$env:USERPROFILE\.k3s-mgc\clusters.json" # limpar
-```
 
 ---
 

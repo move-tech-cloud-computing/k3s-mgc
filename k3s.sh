@@ -11,7 +11,10 @@
 #   k3s.sh kubernetes cluster get                 --cluster-id ID
 #   k3s.sh kubernetes cluster delete              --cluster-id ID
 #   k3s.sh kubernetes cluster configure-registry  --cluster-id ID
-#   k3s.sh kubernetes cluster fix-traefik         --cluster-id ID           # desabilita Traefik em cluster existente
+#   k3s.sh kubernetes cluster diagnose
+#   k3s.sh kubernetes cluster diagnose            --cluster-id ID
+#   k3s.sh kubernetes cluster fix
+#   k3s.sh kubernetes cluster fix                 --cluster-id ID
 #   k3s.sh network ip-cleanup
 
 set -euo pipefail
