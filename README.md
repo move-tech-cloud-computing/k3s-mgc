@@ -6,12 +6,12 @@ Componente Kubernetes simplificado utilizado durante o curso **Move Tech 2026 (M
 
 ## Pré-requisitos
 
-| Ferramenta | macOS / Linux | Windows |
-|------------|--------------|---------|
-| `mgc cli` | [Veja a documentação oficial](https://docs.magalu.cloud/docs/devops-tools/cli-mgc/how-to/download-and-install) | [Veja a documentação oficial](https://docs.magalu.cloud/docs/devops-tools/cli-mgc/how-to/download-and-install) |
-| `ssh` | Já incluso | Já incluso (OpenSSH nativo desde Windows 10) |
-| `python3` | Já incluso | Não necessário (`k3s.ps1` usa PowerShell nativo) |
-| `kubectl` | [kubernetes.io/docs/tasks/tools](https://kubernetes.io/docs/tasks/tools/) | [kubernetes.io/docs/tasks/tools](https://kubernetes.io/docs/tasks/tools/) |
+| Ferramenta | Instalação |
+|------------|-----------|
+| `mgc cli` | [Veja a documentação oficial](https://docs.magalu.cloud/docs/devops-tools/cli-mgc/how-to/download-and-install) |
+| `ssh` | Já incluso no macOS e Linux |
+| `python3` | Já incluso no macOS e Linux |
+| `kubectl` | [kubernetes.io/docs/tasks/tools](https://kubernetes.io/docs/tasks/tools/) |
 
 Você também precisa:
 - Estar autenticado no `mgc`: `mgc auth login`
@@ -22,37 +22,18 @@ Você também precisa:
 
 ## Instalação
 
-### macOS / Linux
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/move-tech-cloud-computing/k3s-mgc/main/k3s.sh -o ~/k3s.sh
 chmod +x ~/k3s.sh
 ```
 
-### Windows (PowerShell)
-
-Abra o PowerShell como administrador e habilite a execução de scripts:
-
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-Baixe o script:
-
-```powershell
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/move-tech-cloud-computing/k3s-mgc/main/k3s.ps1 -OutFile ~\k3s.ps1
-```
+> **Usuários Windows:** o script requer um ambiente Linux. Veja as [alternativas para Windows](#windows) abaixo.
 
 ---
 
 ## Uso
 
-Os comandos seguem o mesmo padrão do `mgc kubernetes cluster`. Nos exemplos abaixo, use o script correspondente ao seu sistema operacional:
-
-| Sistema | Comando |
-|---------|---------|
-| macOS / Linux | `~/k3s.sh kubernetes cluster ...` |
-| Windows | `~\k3s.ps1 kubernetes cluster ...` |
+Os comandos seguem o mesmo padrão do `mgc kubernetes cluster`:
 
 ### Criar o cluster
 
@@ -178,6 +159,28 @@ O script usa a região configurada no `mgc` CLI. Para alterá-la:
 ```bash
 mgc profile region set
 ```
+
+---
+
+## Windows
+
+O script requer bash e ferramentas Linux (`ssh`, `python3`, `nc`). No Windows, há duas formas de rodar:
+
+### Opção 1 — VM Linux na Magalu Cloud (recomendado)
+
+Crie uma VM Ubuntu na Magalu Cloud e execute o script a partir dela. Todos os pré-requisitos já estão disponíveis por padrão.
+
+### Opção 2 — WSL2
+
+Com o WSL2 instalado, abra um terminal Ubuntu e siga as instruções de instalação normalmente:
+
+```bash
+# Dentro do terminal WSL2
+curl -fsSL https://raw.githubusercontent.com/move-tech-cloud-computing/k3s-mgc/main/k3s.sh -o ~/k3s.sh
+chmod +x ~/k3s.sh
+```
+
+Para instalar o WSL2: [learn.microsoft.com/windows/wsl/install](https://learn.microsoft.com/pt-br/windows/wsl/install)
 
 ---
 
