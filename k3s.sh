@@ -2079,8 +2079,8 @@ cmd_ports() {
 
   hdr "Portas — cluster '${name}'"
   echo ""
-  printf "  %-8s %-10s %-8s %s\n" "DIREÇÃO" "PROTOCOLO" "PORTA" "ORIGEM"
-  printf "  %-8s %-10s %-8s %s\n" "───────" "─────────" "──────" "──────────────"
+  printf "  %-8s %-6s %-10s %-8s %s\n" "DIREÇÃO" "TIPO" "PROTOCOLO" "PORTA" "ORIGEM"
+  printf "  %-8s %-6s %-10s %-8s %s\n" "───────" "────" "─────────" "──────" "──────────────"
   echo ""
 
   echo "$rules_json" | python3 -c "
@@ -2091,12 +2091,13 @@ rules = [r for r in rules if r.get('port_range_min')]
 rules.sort(key=lambda r: (r.get('direction',''), r.get('port_range_min') or 0, r.get('ethertype','')))
 for r in rules:
     direcao = 'entrada' if r.get('direction') == 'ingress' else 'saída'
+    tipo    = r.get('ethertype', 'IPv4').replace('IPv4','IPv4').replace('IPv6','IPv6')
     proto   = r.get('protocol') or 'any'
     p_min   = r.get('port_range_min') or '—'
     p_max   = r.get('port_range_max')
     porta   = str(p_min) if not p_max or p_max == p_min else f'{p_min}-{p_max}'
     origem  = r.get('remote_ip_prefix') or '0.0.0.0/0'
-    print(f'  {direcao:<8} {proto:<10} {porta:<8} {origem}')
+    print(f'  {direcao:<8} {tipo:<6} {proto:<10} {porta:<8} {origem}')
 " 2>/dev/null || warn "Sem regras configuradas"
   echo ""
 }
